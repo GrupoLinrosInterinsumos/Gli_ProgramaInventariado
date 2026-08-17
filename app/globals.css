@@ -1,26 +1,95 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/*
+ * Design tokens: Material-3-style naming, consistent con las demás
+ * herramientas internas de GLI (surface/on-surface, primary/secondary
+ * + variantes "container", outline en vez de sombras pesadas).
+ */
+@theme {
+  --color-surface: #f8f9fb;
+  --color-surface-dim: #d8dadd;
+  --color-surface-bright: #f8f9fc;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f2f4f6;
+  --color-surface-container: #edeef0;
+  --color-surface-container-high: #e7e8eb;
+  --color-surface-container-highest: #e1e2e5;
+  --color-surface-variant: #e1e2e5;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  --color-on-surface: #191c1e;
+  --color-on-surface-variant: #464651;
+  --color-inverse-surface: #2e3133;
+  --color-inverse-on-surface: #eff1f3;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-outline: #777682;
+  --color-outline-variant: #c7c5d2;
+
+  --color-primary: #1d226e;
+  --color-on-primary: #ffffff;
+  --color-primary-container: #353a85;
+  --color-on-primary-container: #a3a8fb;
+  --color-primary-fixed: #e0e0ff;
+  --color-primary-fixed-dim: #bfc2ff;
+  --color-on-primary-fixed: #090c5e;
+  --color-on-primary-fixed-variant: #3a3f8a;
+
+  --color-secondary: #bb001e;
+  --color-on-secondary: #ffffff;
+  --color-secondary-container: #e02933;
+  --color-on-secondary-container: #fffbff;
+
+  --color-error: #ba1a1a;
+  --color-on-error: #ffffff;
+  --color-error-container: #ffdad6;
+  --color-on-error-container: #93000a;
+
+  --color-background: #f8f9fc;
+  --color-on-background: #191c1e;
+
+  /* type scale */
+  --text-headline-xl: 3rem;
+  --text-headline-xl--line-height: 3.5rem;
+  --text-headline-xl--font-weight: 700;
+  --text-headline-xl--letter-spacing: -0.02em;
+
+  --text-headline-lg: 2rem;
+  --text-headline-lg--line-height: 2.5rem;
+  --text-headline-lg--font-weight: 700;
+  --text-headline-lg--letter-spacing: -0.01em;
+
+  --text-headline-md: 1.5rem;
+  --text-headline-md--line-height: 2rem;
+  --text-headline-md--font-weight: 600;
+
+  --text-headline-sm: 1.125rem;
+  --text-headline-sm--line-height: 1.5rem;
+  --text-headline-sm--font-weight: 600;
+
+  --text-body-lg: 1.125rem;
+  --text-body-lg--line-height: 1.75rem;
+
+  --text-body-md: 1rem;
+  --text-body-md--line-height: 1.5rem;
+
+  --text-body-sm: 0.875rem;
+  --text-body-sm--line-height: 1.25rem;
+
+  --text-label-md: 0.75rem;
+  --text-label-md--line-height: 1rem;
+  --text-label-md--font-weight: 600;
+  --text-label-md--letter-spacing: 0.05em;
+
+  --text-label-sm: 0.6875rem;
+  --text-label-sm--line-height: 0.875rem;
+  --text-label-sm--font-weight: 500;
+
+  --radius-chip: 0.25rem;
+  --radius-card: 0.75rem;
+
+  --font-sans: var(--font-inter);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-background);
+  color: var(--color-on-background);
 }

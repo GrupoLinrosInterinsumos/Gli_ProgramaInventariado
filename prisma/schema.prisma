@@ -1,0 +1,160 @@
+// Prisma schema — Inventariado Almacén (conteo físico en tiempo real)
+// Proyecto independiente: no comparte base de datos con "Almacén GLI".
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Rol {
+  OPERADOR
+  SUPERVISOR
+}
+
+enum EstadoConteoSesion {
+  ABIERTA
+  CERRADA
+}
+
+enum TipoRespaldo {
+  EXCEL
+  PDF
+}
+
+model Usuario {
+  id           String   @id @default(cuid())
+  nombre       String
+  email        String   @unique
+  passwordHash String
+  rol          Rol
+  activo       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  sesionesCreadas ConteoSesion[]
+  lineas          ConteoLinea[]
+  respaldos       RespaldoLog[]
+}
+
+model Almacen {
+  id        String   @id @default(cuid())
+  nombre    String   @unique
+  createdAt DateTime @default(now())
+
+  productos Producto[]
+  sesiones  ConteoSesion[]
+}
+
+model Producto {
+  id           String   @id @default(cuid())
+  codigo       String   @unique
+  nombre       String
+  presentacion String
+  pesoKg       Float?
+  almacenId    String
+  almacen      Almacen  @relation(fields: [almacenId], references: [id], onDelete: Restrict)
+  activo       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  lotes       Lote[]
+  stockPrevio StockPrevio[]
+  lineas      ConteoLinea[]
+
+  @@index([almacenId])
+}
+
+// Catálogo de lotes por producto — el mismo texto de lote puede repetirse
+// en productos distintos con fechas distintas, por eso es único por producto.
+model Lote {
+  id           String   @id @default(cuid())
+  productoId   String
+  producto     Producto @relation(fields: [productoId], references: [id], onDelete: Restrict)
+  codigo       String
+  fProduccion  DateTime
+  fVencimiento DateTime
+  createdAt    DateTime @default(now())
+
+  stockPrevio StockPrevio[]
+  lineas      ConteoLinea[]
+
+  @@unique([productoId, codigo])
+}
+
+// Un inventariado físico: se abre, se cuenta entre varios dispositivos, se cierra.
+model ConteoSesion {
+  id          String             @id @default(cuid())
+  nombre      String
+  almacenId   String
+  almacen     Almacen            @relation(fields: [almacenId], references: [id], onDelete: Restrict)
+  estado      EstadoConteoSesion @default(ABIERTA)
+  creadoPorId String
+  creadoPor   Usuario            @relation(fields: [creadoPorId], references: [id], onDelete: Restrict)
+  createdAt   DateTime           @default(now())
+  cerradoAt   DateTime?
+
+  stockPrevio StockPrevio[]
+  lineas      ConteoLinea[]
+  respaldos   RespaldoLog[]
+}
+
+// Cada vez que alguien descarga un Excel o PDF de una sesión queda registrado
+// aquí — es la prueba de "último respaldo" que se muestra en el dashboard.
+// El respaldo real de la base de datos lo hacen los backups automáticos de
+// Render (plan Pro); esto es un respaldo manual adicional, no lo reemplaza.
+model RespaldoLog {
+  id         String       @id @default(cuid())
+  sesionId   String
+  sesion     ConteoSesion @relation(fields: [sesionId], references: [id], onDelete: Cascade)
+  tipo       TipoRespaldo
+  usuarioId  String
+  usuario    Usuario      @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+  createdAt  DateTime     @default(now())
+
+  @@index([sesionId, createdAt])
+}
+
+// Línea base cargada por Excel al iniciar la sesión: contra esto se compara
+// lo que se va contando. Puede ser a nivel de producto (loteId null) o por lote.
+model StockPrevio {
+  id         String        @id @default(cuid())
+  sesionId   String
+  sesion     ConteoSesion  @relation(fields: [sesionId], references: [id], onDelete: Cascade)
+  productoId String
+  producto   Producto      @relation(fields: [productoId], references: [id], onDelete: Restrict)
+  loteId     String?
+  lote       Lote?         @relation(fields: [loteId], references: [id], onDelete: SetNull)
+  cantidad   Float
+  createdAt  DateTime      @default(now())
+
+  @@unique([sesionId, productoId, loteId])
+  @@index([sesionId, productoId])
+}
+
+// Cada fila que un operador agrega en la tabla de conteo.
+model ConteoLinea {
+  id           String       @id @default(cuid())
+  sesionId     String
+  sesion       ConteoSesion @relation(fields: [sesionId], references: [id], onDelete: Cascade)
+  productoId   String
+  producto     Producto     @relation(fields: [productoId], references: [id], onDelete: Restrict)
+  presentacion String
+  pesoKg       Float
+  unidades     Float
+  total        Float
+  loteId       String
+  lote         Lote         @relation(fields: [loteId], references: [id], onDelete: Restrict)
+  loteCodigo   String
+  fProduccion  DateTime
+  fVencimiento DateTime
+  ubicacion    String
+  usuarioId    String
+  usuario      Usuario      @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@index([sesionId, productoId])
+}

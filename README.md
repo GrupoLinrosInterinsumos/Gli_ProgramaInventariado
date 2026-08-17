@@ -1,36 +1,55 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Inventariado - Almacén GLI
 
-## Getting Started
+Programa independiente para el conteo físico de inventario en tiempo real (7 dispositivos), comparado contra un stock previo cargado por Excel. No comparte código ni base de datos con la app "Almacén GLI".
 
-First, run the development server:
+## Requisitos
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- Node.js 20.9+
+- Una base de datos Postgres (hoy: la de Render)
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Configuración
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. Copia tus variables a `.env` (ya incluido, no se sube a git):
+   - `DATABASE_URL`: cadena de conexión Postgres.
+   - `AUTH_SECRET`: secreto de sesión (ya generado).
+   - `ALLOWED_EMAIL_DOMAIN`: dominio de correo permitido (`gli.pe`).
+   - `SEED_SUPERVISOR_*`: datos del primer usuario supervisor (solo se usan al correr el seed).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+2. Instala dependencias y aplica el esquema:
 
-## Learn More
+   ```bash
+   npm install
+   npx prisma migrate dev
+   npx tsx --env-file=.env prisma/seed.ts
+   ```
 
-To learn more about Next.js, take a look at the following resources:
+   El seed crea los almacenes CRAMER/SACCO y el primer usuario supervisor.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+3. Arranca en desarrollo:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+   ```bash
+   npm run dev
+   ```
 
-## Deploy on Vercel
+## Flujo de uso
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. Un supervisor inicia sesión y va a **Conteo → Iniciar nuevo conteo**, sube el Excel de carga previa (productos, lotes y stock previo) y elige el almacén.
+2. Los 7 dispositivos entran a esa sesión y van agregando líneas contadas (producto, presentación, peso, unidades, lote, ubicación).
+3. El **Dashboard** muestra el avance por producto y por lote contra el stock previo, con alertas al llegar o pasar el 100%.
+4. Se puede exportar a Excel y PDF en cualquier momento, y cerrar la sesión cuando termina el inventariado.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### Formato del Excel de carga previa
+
+Primera fila = encabezados, exactamente así:
+
+| Codigo | Producto | Presentacion | Peso_kg | Lote | F_Produccion | F_Vencimiento | Cantidad_Stock |
+|---|---|---|---|---|---|---|---|
+
+`Codigo` es opcional: si no viene (o viene vacía) y `Producto` trae el código entre corchetes al inicio
+(ej. `[ACEK1-160-025] Acesulfame K Foture x 25kg`), se extrae automáticamente. `Lote` y las fechas son
+opcionales por fila (si se dejan vacías, el stock previo queda a nivel de producto). `Cantidad_Stock` es
+obligatorio.
+
+## Pendiente
+
+El despliegue en Render (Fase 8 del plan) todavía no se ha hecho — este proyecto corre localmente por ahora.
