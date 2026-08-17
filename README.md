@@ -23,7 +23,7 @@ Programa independiente para el conteo físico de inventario en tiempo real (7 di
    npx tsx --env-file=.env prisma/seed.ts
    ```
 
-   El seed crea los almacenes CRAMER/SACCO y el primer usuario supervisor.
+   El seed crea los almacenes AQP/BSF/TRU/YAN y el primer usuario supervisor.
 
 3. Arranca en desarrollo:
 

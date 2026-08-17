@@ -7,7 +7,7 @@ const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
 
 async function main() {
-  for (const nombre of ["CRAMER", "SACCO"]) {
+  for (const nombre of ["AQP", "BSF", "TRU", "YAN"]) {
     await prisma.almacen.upsert({ where: { nombre }, update: {}, create: { nombre } });
   }
 
