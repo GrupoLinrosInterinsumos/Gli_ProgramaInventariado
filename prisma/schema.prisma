@@ -74,7 +74,7 @@ model Lote {
   productoId   String
   producto     Producto @relation(fields: [productoId], references: [id], onDelete: Restrict)
   codigo       String
-  fProduccion  DateTime
+  fProduccion  DateTime?
   fVencimiento DateTime
   createdAt    DateTime @default(now())
 
@@ -148,7 +148,7 @@ model ConteoLinea {
   loteId       String
   lote         Lote         @relation(fields: [loteId], references: [id], onDelete: Restrict)
   loteCodigo   String
-  fProduccion  DateTime
+  fProduccion  DateTime?
   fVencimiento DateTime
   ubicacion    String
   usuarioId    String

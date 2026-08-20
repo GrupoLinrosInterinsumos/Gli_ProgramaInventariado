@@ -14,7 +14,7 @@ type Linea = {
   unidades: number;
   total: number;
   loteCodigo: string;
-  fProduccion: string;
+  fProduccion: string | null;
   fVencimiento: string;
   ubicacion: string;
   usuarioNombre: string;
@@ -32,7 +32,8 @@ function fmt(n: number) {
   return n.toLocaleString("es-PE", { maximumFractionDigits: 2 });
 }
 
-function formatFecha(iso: string) {
+function formatFecha(iso: string | null) {
+  if (!iso) return "—";
   return new Date(iso).toLocaleDateString("es-PE", { timeZone: "UTC" });
 }
 

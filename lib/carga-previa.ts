@@ -12,18 +12,31 @@ export type FilaCargaPrevia = {
   fProduccion: Date | null;
   fVencimiento: Date | null;
   cantidadStock: number;
+  almacenCodigo: string | null;
 };
 
 const COLUMNAS = {
-  codigo: ["codigo", "código"],
-  nombre: ["producto"],
-  presentacion: ["presentacion", "presentación"],
-  pesoKg: ["peso_kg", "peso kg", "peso"],
+  codigo: ["codigo", "código", "cod. producto", "cod producto"],
+  nombre: ["producto", "n.producto"],
+  presentacion: ["presentacion", "presentación", "n.producto/presentacion", "n.producto/presentación"],
+  pesoKg: ["peso_kg", "peso kg", "peso", "n.producto/peso unitario"],
   lote: ["lote"],
-  fProduccion: ["f_produccion", "f_produccion", "fproduccion", "f. produccion", "f. producción"],
-  fVencimiento: ["f_vencimiento", "fvencimiento", "f. vencimiento"],
+  fProduccion: [
+    "f_produccion",
+    "fproduccion",
+    "f. produccion",
+    "f. producción",
+    "lote/fecha de fabricacion",
+    "lote/fecha de fabricación",
+  ],
+  fVencimiento: ["f_vencimiento", "fvencimiento", "f. vencimiento", "lote/fecha de caducidad"],
   cantidadStock: ["cantidad_stock", "cantidad stock", "stock"],
+  almacen: ["almacen", "almacén", "n.almacen", "n.almacén"],
 } as const;
+
+/** Subcategoría de almacén que cuenta como stock real a comparar; el resto
+ * (Pre-Producción, No conformes, etc.) se ignora en el conteo físico. */
+const SUBCATEGORIA_VALIDA = "stock";
 
 function normalizar(texto: string) {
   return texto
@@ -64,7 +77,7 @@ function celdaFecha(row: ExcelJS.Row, col: number | null): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-export async function parseCargaPreviaWorkbook(buffer: ArrayBuffer) {
+export async function parseCargaPreviaWorkbook(buffer: ArrayBuffer, almacenObjetivo?: string) {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer);
   const sheet = workbook.worksheets[0];
@@ -87,17 +100,33 @@ export async function parseCargaPreviaWorkbook(buffer: ArrayBuffer) {
   const colFProd = encontrarColumna(headers, COLUMNAS.fProduccion);
   const colFVenc = encontrarColumna(headers, COLUMNAS.fVencimiento);
   const colStock = encontrarColumna(headers, COLUMNAS.cantidadStock);
+  const colAlmacen = encontrarColumna(headers, COLUMNAS.almacen);
 
   const errores: string[] = [];
   if (colNombre === null) errores.push('Falta la columna "Producto".');
   if (colStock === null) errores.push('Falta la columna "Cantidad_Stock".');
   if (errores.length > 0) return { filas: [] as FilaCargaPrevia[], errores };
 
+  const almacenObjetivoNorm = almacenObjetivo ? normalizar(almacenObjetivo) : null;
+
   const filas: FilaCargaPrevia[] = [];
   for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber++) {
     const row = sheet.getRow(rowNumber);
     const nombreCelda = celdaTexto(row, colNombre);
     if (!nombreCelda) continue;
+
+    // Columna tipo "AQP/Stock", "BSF/Pre-Producción", "BSF/No conformes":
+    // código de almacén + subcategoría interna. Solo interesa el stock
+    // normal ("Stock") del almacén de esta sesión — el resto se descarta.
+    let almacenCodigo: string | null = null;
+    if (colAlmacen !== null) {
+      const valor = celdaTexto(row, colAlmacen);
+      const [codigoParte, ...resto] = valor.split("/");
+      almacenCodigo = codigoParte.trim() || null;
+      const subcategoria = resto.join("/").trim();
+      if (normalizar(subcategoria) !== SUBCATEGORIA_VALIDA) continue;
+      if (almacenObjetivoNorm && normalizar(almacenCodigo ?? "") !== almacenObjetivoNorm) continue;
+    }
 
     // Si no hay columna "Codigo" (o viene vacía), se busca un código entre
     // corchetes al inicio del nombre — formato típico exportado de otros
@@ -132,10 +161,11 @@ export async function parseCargaPreviaWorkbook(buffer: ArrayBuffer) {
       fProduccion: celdaFecha(row, colFProd),
       fVencimiento: celdaFecha(row, colFVenc),
       cantidadStock,
+      almacenCodigo,
     });
 
-    if (loteCodigo && (!celdaFecha(row, colFProd) || !celdaFecha(row, colFVenc))) {
-      errores.push(`Fila ${rowNumber}: el lote "${loteCodigo}" no tiene F_Produccion/F_Vencimiento completas, se ignoró el lote.`);
+    if (loteCodigo && !celdaFecha(row, colFVenc)) {
+      errores.push(`Fila ${rowNumber}: el lote "${loteCodigo}" no tiene F_Vencimiento, se ignoró el lote.`);
     }
   }
 
@@ -154,7 +184,7 @@ function agruparFilas(filas: FilaCargaPrevia[]) {
   for (const fila of filas) {
     porProducto.set(fila.codigo, fila);
 
-    const loteValido = fila.loteCodigo && fila.fProduccion && fila.fVencimiento ? fila.loteCodigo : null;
+    const loteValido = fila.loteCodigo && fila.fVencimiento ? fila.loteCodigo : null;
     const clave = `${fila.codigo}::${loteValido ?? ""}`;
     const existente = stockPorClave.get(clave);
     if (existente) {
@@ -210,11 +240,12 @@ export async function aplicarCargaPrevia(
     const productoId = productoIdPorCodigo.get(entrada.producto.codigo)!;
 
     let loteId: string | null = null;
-    if (entrada.loteCodigo && entrada.fProduccion && entrada.fVencimiento) {
+    const { loteCodigo, fProduccion, fVencimiento } = entrada;
+    if (loteCodigo && fVencimiento) {
       const lote = await tx.lote.upsert({
-        where: { productoId_codigo: { productoId, codigo: entrada.loteCodigo } },
-        update: { fProduccion: entrada.fProduccion, fVencimiento: entrada.fVencimiento },
-        create: { productoId, codigo: entrada.loteCodigo, fProduccion: entrada.fProduccion, fVencimiento: entrada.fVencimiento },
+        where: { productoId_codigo: { productoId, codigo: loteCodigo } },
+        update: { fProduccion, fVencimiento },
+        create: { productoId, codigo: loteCodigo, fProduccion, fVencimiento },
       });
       loteId = lote.id;
     }

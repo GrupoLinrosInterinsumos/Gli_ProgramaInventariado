@@ -63,11 +63,15 @@ export function NuevaSesionForm({ almacenes }: { almacenes: { id: string; nombre
           />
         </div>
         <p className="mt-1 text-xs text-on-surface-variant">
-          Columnas: Producto | Presentacion | Peso_kg | Lote | F_Produccion | F_Vencimiento | Cantidad_Stock
+          Acepta la plantilla &ldquo;Lotes&rdquo; tal como la exportan (N.Producto, N.Almacén, Lote, Lote/Fecha de
+          Fabricación, Lote/Fecha de caducidad, Stock, etc.) o el formato simple: Producto | Presentacion | Peso_kg |
+          Lote | F_Produccion | F_Vencimiento | Cantidad_Stock.
         </p>
         <p className="text-xs text-on-surface-variant">
-          &ldquo;Codigo&rdquo; es opcional: si tu Producto ya trae el código entre corchetes (ej.
-          &ldquo;[ACEK1-160-025] Acesulfame K Foture x 25kg&rdquo;), se detecta solo.
+          El código puede venir entre corchetes en el nombre (ej. &ldquo;[ACEK1-160-025] Acesulfame K Foture x
+          25kg&rdquo;). Si el archivo trae varios almacenes juntos, solo se toman las filas de este almacén y
+          subcategoría &ldquo;Stock&rdquo; (se ignoran Pre-Producción / No conformes). La fecha de fabricación es
+          opcional.
         </p>
       </div>
 

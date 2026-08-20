@@ -41,7 +41,7 @@ export default async function ConteoSesionPage({ params }: PageProps<"/conteo/[s
     lotes: p.lotes.map((l) => ({
       id: l.id,
       codigo: l.codigo,
-      fProduccion: l.fProduccion.toISOString(),
+      fProduccion: l.fProduccion?.toISOString() ?? null,
       fVencimiento: l.fVencimiento.toISOString(),
     })),
   }));
@@ -54,7 +54,7 @@ export default async function ConteoSesionPage({ params }: PageProps<"/conteo/[s
     unidades: l.unidades,
     total: l.total,
     loteCodigo: l.loteCodigo,
-    fProduccion: l.fProduccion.toISOString(),
+    fProduccion: l.fProduccion?.toISOString() ?? null,
     fVencimiento: l.fVencimiento.toISOString(),
     ubicacion: l.ubicacion,
     usuarioNombre: l.usuario.nombre,

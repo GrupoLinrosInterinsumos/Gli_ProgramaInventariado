@@ -123,7 +123,12 @@ export async function eliminarLineaAction(lineaId: string): Promise<ActionResult
   return { ok: true };
 }
 
-export type CrearLoteResult = { error: string } | { ok: true; lote: { id: string; codigo: string; fProduccion: string; fVencimiento: string } };
+export type CrearLoteResult = {
+  error: string;
+} | {
+  ok: true;
+  lote: { id: string; codigo: string; fProduccion: string | null; fVencimiento: string };
+};
 
 export async function crearLoteAction(
   productoId: string,
@@ -135,14 +140,17 @@ export async function crearLoteAction(
 
   const codigoLimpio = codigo.trim();
   if (!codigoLimpio) return { error: "El código de lote es obligatorio." };
-  if (!fProduccion || !fVencimiento) return { error: "Completa ambas fechas del lote." };
+  if (!fVencimiento) return { error: "La fecha de vencimiento es obligatoria." };
 
-  const fProd = new Date(fProduccion);
   const fVenc = new Date(fVencimiento);
-  if (Number.isNaN(fProd.getTime()) || Number.isNaN(fVenc.getTime())) {
-    return { error: "Fechas inválidas." };
+  if (Number.isNaN(fVenc.getTime())) return { error: "Fecha de vencimiento inválida." };
+
+  let fProd: Date | null = null;
+  if (fProduccion) {
+    fProd = new Date(fProduccion);
+    if (Number.isNaN(fProd.getTime())) return { error: "Fecha de producción inválida." };
+    if (fVenc < fProd) return { error: "La fecha de vencimiento no puede ser anterior a la de producción." };
   }
-  if (fVenc < fProd) return { error: "La fecha de vencimiento no puede ser anterior a la de producción." };
 
   const lote = await prisma.lote.upsert({
     where: { productoId_codigo: { productoId, codigo: codigoLimpio } },
@@ -152,6 +160,6 @@ export async function crearLoteAction(
 
   return {
     ok: true,
-    lote: { id: lote.id, codigo: lote.codigo, fProduccion: lote.fProduccion.toISOString(), fVencimiento: lote.fVencimiento.toISOString() },
+    lote: { id: lote.id, codigo: lote.codigo, fProduccion: lote.fProduccion?.toISOString() ?? null, fVencimiento: lote.fVencimiento.toISOString() },
   };
 }

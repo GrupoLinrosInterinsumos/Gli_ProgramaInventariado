@@ -14,7 +14,7 @@ type Linea = {
   unidades: number;
   total: number;
   loteCodigo: string;
-  fProduccion: string;
+  fProduccion: string | null;
   fVencimiento: string;
   ubicacion: string;
   usuarioNombre: string;
@@ -22,7 +22,8 @@ type Linea = {
   createdAt: string;
 };
 
-function formatFecha(iso: string) {
+function formatFecha(iso: string | null) {
+  if (!iso) return "—";
   return new Date(iso).toLocaleDateString("es-PE", { timeZone: "UTC" });
 }
 

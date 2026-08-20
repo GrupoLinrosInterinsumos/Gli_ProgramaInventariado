@@ -149,7 +149,7 @@ export default async function DashboardPage({ params }: PageProps<"/conteo/[sesi
             unidades: l.unidades,
             total: l.total,
             loteCodigo: l.loteCodigo,
-            fProduccion: l.fProduccion.toISOString(),
+            fProduccion: l.fProduccion?.toISOString() ?? null,
             fVencimiento: l.fVencimiento.toISOString(),
             ubicacion: l.ubicacion,
             usuarioNombre: l.usuario.nombre,

@@ -3,7 +3,8 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { xlsxResponse } from "@/lib/xlsx";
 
-function fmtFecha(d: Date) {
+function fmtFecha(d: Date | null) {
+  if (!d) return "—";
   return d.toLocaleDateString("es-PE", { timeZone: "UTC" });
 }
 

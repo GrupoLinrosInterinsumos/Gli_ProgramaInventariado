@@ -6,12 +6,13 @@ import { Button } from "@/app/components/ui/button";
 import { IconPlus } from "@/app/components/ui/icons";
 import { agregarLineaAction, crearLoteAction } from "./actions";
 
-type Lote = { id: string; codigo: string; fProduccion: string; fVencimiento: string };
+type Lote = { id: string; codigo: string; fProduccion: string | null; fVencimiento: string };
 type Producto = { id: string; codigo: string; nombre: string; presentacion: string; pesoKg: number | null; lotes: Lote[] };
 
 const NUEVO_LOTE = "__nuevo__";
 
-function formatFecha(iso: string) {
+function formatFecha(iso: string | null) {
+  if (!iso) return "—";
   return new Date(iso).toLocaleDateString("es-PE", { timeZone: "UTC" });
 }
 
@@ -214,12 +215,15 @@ export function ConteoForm({ sesionId, productos }: { sesionId: string; producto
             />
             <input
               type="date"
+              title="Fecha de producción (opcional)"
               value={nuevoLote.fProduccion}
               onChange={(e) => setNuevoLote((p) => ({ ...p, fProduccion: e.target.value }))}
               className="rounded-md border border-outline-variant px-2 py-1.5 text-sm shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
             <input
               type="date"
+              title="Fecha de vencimiento (obligatoria)"
+              required
               value={nuevoLote.fVencimiento}
               onChange={(e) => setNuevoLote((p) => ({ ...p, fVencimiento: e.target.value }))}
               className="rounded-md border border-outline-variant px-2 py-1.5 text-sm shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"

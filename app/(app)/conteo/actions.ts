@@ -37,17 +37,24 @@ export async function crearSesionAction(
     return { error: "Sube el Excel de carga previa." };
   }
 
-  const sesionAbierta = await prisma.conteoSesion.findFirst({
-    where: { almacenId, estado: "ABIERTA" },
-  });
+  const [sesionAbierta, almacen] = await Promise.all([
+    prisma.conteoSesion.findFirst({ where: { almacenId, estado: "ABIERTA" } }),
+    prisma.almacen.findUnique({ where: { id: almacenId } }),
+  ]);
   if (sesionAbierta) {
     return { error: "Ya hay un conteo abierto para este almacén. Ciérralo antes de iniciar otro." };
   }
+  if (!almacen) {
+    return { error: "Almacén no encontrado." };
+  }
 
   const buffer = await archivo.arrayBuffer();
-  const { filas, errores } = await parseCargaPreviaWorkbook(buffer);
+  const { filas, errores } = await parseCargaPreviaWorkbook(buffer, almacen.nombre);
   if (filas.length === 0) {
-    return { error: "No se pudo leer el archivo.", errores };
+    return {
+      error: "No se pudo leer el archivo, o no había filas de stock para este almacén.",
+      errores,
+    };
   }
 
   let sesionId = "";
