@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { Readable } from "node:stream";
 import type { PrismaClient } from "@/app/generated/prisma/client";
 import type { Prisma } from "@/app/generated/prisma/client";
 
@@ -66,109 +67,156 @@ function celdaNumero(row: ExcelJS.Row, col: number | null): number | null {
   return Number.isFinite(num) ? num : null;
 }
 
+// Epoch de Excel: el día 0 es 1899-12-30 (por el bug del año bisiesto 1900
+// que Excel arrastra a propósito). Con `styles: "ignore"` en el lector de
+// streaming, las celdas con formato de fecha llegan como este número de
+// serie plano en vez de un Date ya convertido.
+const EXCEL_EPOCH_MS = Date.UTC(1899, 11, 30);
+
 function celdaFecha(row: ExcelJS.Row, col: number | null): Date | null {
   if (col === null) return null;
   const value = row.getCell(col + 1).value;
-  if (!value) return null;
+  if (value === null || value === undefined || value === "") return null;
   if (value instanceof Date) return value;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return new Date(EXCEL_EPOCH_MS + value * 86_400_000);
+  }
   const texto = celdaTexto(row, col);
   if (!texto) return null;
   const parsed = new Date(texto);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+// Excel a veces reporta cientos de miles (o millones) de filas "usadas" por
+// formato aplicado a toda la hoja, aunque los datos reales terminen mucho
+// antes — por eso se lee en streaming (sin construir el modelo de estilos,
+// que es lo que hace lento un archivo así) y se corta apenas aparece una
+// racha larga de filas vacías, con un tope duro de todos modos.
+const TOPE_FILAS = 200_000;
+const RACHA_VACIA_MAXIMA = 300;
+
 export async function parseCargaPreviaWorkbook(buffer: ArrayBuffer, almacenObjetivo?: string) {
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer);
-  const sheet = workbook.worksheets[0];
-
-  if (!sheet) {
-    return { filas: [] as FilaCargaPrevia[], errores: ["El archivo no tiene hojas."] };
-  }
-
-  const headerRow = sheet.getRow(1);
-  const headers: string[] = [];
-  headerRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-    headers[colNumber - 1] = String(cell.value ?? "");
+  const workbookReader = new ExcelJS.stream.xlsx.WorkbookReader(Readable.from(Buffer.from(buffer)), {
+    styles: "ignore",
+    hyperlinks: "ignore",
+    sharedStrings: "cache",
+    worksheets: "emit",
+    entries: "emit",
   });
 
-  const colCodigo = encontrarColumna(headers, COLUMNAS.codigo);
-  const colNombre = encontrarColumna(headers, COLUMNAS.nombre);
-  const colPresentacion = encontrarColumna(headers, COLUMNAS.presentacion);
-  const colPeso = encontrarColumna(headers, COLUMNAS.pesoKg);
-  const colLote = encontrarColumna(headers, COLUMNAS.lote);
-  const colFProd = encontrarColumna(headers, COLUMNAS.fProduccion);
-  const colFVenc = encontrarColumna(headers, COLUMNAS.fVencimiento);
-  const colStock = encontrarColumna(headers, COLUMNAS.cantidadStock);
-  const colAlmacen = encontrarColumna(headers, COLUMNAS.almacen);
-
-  const errores: string[] = [];
-  if (colNombre === null) errores.push('Falta la columna "Producto".');
-  if (colStock === null) errores.push('Falta la columna "Cantidad_Stock".');
-  if (errores.length > 0) return { filas: [] as FilaCargaPrevia[], errores };
-
   const almacenObjetivoNorm = almacenObjetivo ? normalizar(almacenObjetivo) : null;
-
   const filas: FilaCargaPrevia[] = [];
-  for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber++) {
-    const row = sheet.getRow(rowNumber);
-    const nombreCelda = celdaTexto(row, colNombre);
-    if (!nombreCelda) continue;
+  const errores: string[] = [];
 
-    // Columna tipo "AQP/Stock", "BSF/Pre-Producción", "BSF/No conformes":
-    // código de almacén + subcategoría interna. Solo interesa el stock
-    // normal ("Stock") del almacén de esta sesión — el resto se descarta.
-    let almacenCodigo: string | null = null;
-    if (colAlmacen !== null) {
-      const valor = celdaTexto(row, colAlmacen);
-      const [codigoParte, ...resto] = valor.split("/");
-      almacenCodigo = codigoParte.trim() || null;
-      const subcategoria = resto.join("/").trim();
-      if (normalizar(subcategoria) !== SUBCATEGORIA_VALIDA) continue;
-      if (almacenObjetivoNorm && normalizar(almacenCodigo ?? "") !== almacenObjetivoNorm) continue;
-    }
+  let colCodigo: number | null = null;
+  let colNombre: number | null = null;
+  let colPresentacion: number | null = null;
+  let colPeso: number | null = null;
+  let colLote: number | null = null;
+  let colFProd: number | null = null;
+  let colFVenc: number | null = null;
+  let colStock: number | null = null;
+  let colAlmacen: number | null = null;
 
-    // Si no hay columna "Codigo" (o viene vacía), se busca un código entre
-    // corchetes al inicio del nombre — formato típico exportado de otros
-    // sistemas: "[ACEK1-160-025] ACESULFAME K FOTURE X 25kg".
-    let codigo = celdaTexto(row, colCodigo);
-    let nombre = nombreCelda;
-    if (!codigo) {
-      const match = nombreCelda.match(/^\[([^\]]+)\]\s*(.*)$/);
-      if (match) {
-        codigo = match[1].trim();
-        nombre = match[2].trim() || nombreCelda;
-      } else {
-        codigo = nombreCelda;
+  let huboHoja = false;
+
+  for await (const worksheetReader of workbookReader) {
+    huboHoja = true;
+    let rowNumber = 0;
+    let rachaVacia = 0;
+
+    for await (const row of worksheetReader) {
+      rowNumber++;
+      if (rowNumber > TOPE_FILAS) break;
+
+      if (rowNumber === 1) {
+        const headers: string[] = [];
+        row.eachCell({ includeEmpty: true }, (cell, colNum) => {
+          headers[colNum - 1] = String(cell.value ?? "");
+        });
+
+        colCodigo = encontrarColumna(headers, COLUMNAS.codigo);
+        colNombre = encontrarColumna(headers, COLUMNAS.nombre);
+        colPresentacion = encontrarColumna(headers, COLUMNAS.presentacion);
+        colPeso = encontrarColumna(headers, COLUMNAS.pesoKg);
+        colLote = encontrarColumna(headers, COLUMNAS.lote);
+        colFProd = encontrarColumna(headers, COLUMNAS.fProduccion);
+        colFVenc = encontrarColumna(headers, COLUMNAS.fVencimiento);
+        colStock = encontrarColumna(headers, COLUMNAS.cantidadStock);
+        colAlmacen = encontrarColumna(headers, COLUMNAS.almacen);
+
+        if (colNombre === null) errores.push('Falta la columna "Producto".');
+        if (colStock === null) errores.push('Falta la columna "Cantidad_Stock".');
+        if (errores.length > 0) return { filas: [] as FilaCargaPrevia[], errores };
+        continue;
+      }
+
+      const nombreCelda = celdaTexto(row, colNombre);
+      if (!nombreCelda) {
+        rachaVacia++;
+        if (rachaVacia >= RACHA_VACIA_MAXIMA) break;
+        continue;
+      }
+      rachaVacia = 0;
+
+      // Columna tipo "AQP/Stock", "BSF/Pre-Producción", "BSF/No conformes":
+      // código de almacén + subcategoría interna. Solo interesa el stock
+      // normal ("Stock") del almacén de esta sesión — el resto se descarta.
+      let almacenCodigo: string | null = null;
+      if (colAlmacen !== null) {
+        const valor = celdaTexto(row, colAlmacen);
+        const [codigoParte, ...resto] = valor.split("/");
+        almacenCodigo = codigoParte.trim() || null;
+        const subcategoria = resto.join("/").trim();
+        if (normalizar(subcategoria) !== SUBCATEGORIA_VALIDA) continue;
+        if (almacenObjetivoNorm && normalizar(almacenCodigo ?? "") !== almacenObjetivoNorm) continue;
+      }
+
+      // Si no hay columna "Codigo" (o viene vacía), se busca un código entre
+      // corchetes al inicio del nombre — formato típico exportado de otros
+      // sistemas: "[ACEK1-160-025] ACESULFAME K FOTURE X 25kg".
+      let codigo = celdaTexto(row, colCodigo);
+      let nombre = nombreCelda;
+      if (!codigo) {
+        const match = nombreCelda.match(/^\[([^\]]+)\]\s*(.*)$/);
+        if (match) {
+          codigo = match[1].trim();
+          nombre = match[2].trim() || nombreCelda;
+        } else {
+          codigo = nombreCelda;
+        }
+      }
+
+      const loteCodigo = celdaTexto(row, colLote) || null;
+      const cantidadStock = celdaNumero(row, colStock);
+
+      if (cantidadStock === null) {
+        errores.push(`Fila ${rowNumber}: "Cantidad_Stock" vacío o inválido para ${codigo}.`);
+        continue;
+      }
+
+      filas.push({
+        fila: rowNumber,
+        codigo,
+        nombre,
+        presentacion: celdaTexto(row, colPresentacion),
+        pesoKg: celdaNumero(row, colPeso),
+        loteCodigo,
+        fProduccion: celdaFecha(row, colFProd),
+        fVencimiento: celdaFecha(row, colFVenc),
+        cantidadStock,
+        almacenCodigo,
+      });
+
+      if (loteCodigo && !celdaFecha(row, colFVenc)) {
+        errores.push(`Fila ${rowNumber}: el lote "${loteCodigo}" no tiene F_Vencimiento, se ignoró el lote.`);
       }
     }
 
-    const loteCodigo = celdaTexto(row, colLote) || null;
-    const cantidadStock = celdaNumero(row, colStock);
-
-    if (cantidadStock === null) {
-      errores.push(`Fila ${rowNumber}: "Cantidad_Stock" vacío o inválido para ${codigo}.`);
-      continue;
-    }
-
-    filas.push({
-      fila: rowNumber,
-      codigo,
-      nombre,
-      presentacion: celdaTexto(row, colPresentacion),
-      pesoKg: celdaNumero(row, colPeso),
-      loteCodigo,
-      fProduccion: celdaFecha(row, colFProd),
-      fVencimiento: celdaFecha(row, colFVenc),
-      cantidadStock,
-      almacenCodigo,
-    });
-
-    if (loteCodigo && !celdaFecha(row, colFVenc)) {
-      errores.push(`Fila ${rowNumber}: el lote "${loteCodigo}" no tiene F_Vencimiento, se ignoró el lote.`);
-    }
+    break; // solo la primera hoja
   }
 
+  if (!huboHoja) return { filas: [] as FilaCargaPrevia[], errores: ["El archivo no tiene hojas."] };
   if (filas.length === 0) errores.push("El archivo no tiene filas de datos.");
 
   return { filas, errores };
