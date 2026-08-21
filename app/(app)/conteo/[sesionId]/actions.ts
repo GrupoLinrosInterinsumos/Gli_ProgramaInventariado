@@ -77,7 +77,13 @@ export async function agregarLineaAction(sesionId: string, input: LineaInput): P
   return { ok: true };
 }
 
-export type EditarLineaInput = { presentacion: string; pesoKg: number; unidades: number; ubicacion: string };
+export type EditarLineaInput = {
+  presentacion: string;
+  pesoKg: number;
+  unidades: number;
+  fProduccion: string | null;
+  ubicacion: string;
+};
 
 export async function actualizarLineaAction(lineaId: string, input: EditarLineaInput): Promise<ActionResult> {
   const session = await requireSession();
@@ -86,6 +92,12 @@ export async function actualizarLineaAction(lineaId: string, input: EditarLineaI
   if (!(input.pesoKg > 0)) return { error: "El peso debe ser mayor a 0." };
   if (!(input.unidades > 0)) return { error: "Las unidades deben ser mayor a 0." };
   if (!input.ubicacion.trim()) return { error: "La ubicación es obligatoria." };
+
+  let fProduccion: Date | null = null;
+  if (input.fProduccion) {
+    fProduccion = new Date(input.fProduccion);
+    if (Number.isNaN(fProduccion.getTime())) return { error: "Fecha de producción inválida." };
+  }
 
   const linea = await prisma.conteoLinea.findUniqueOrThrow({
     where: { id: lineaId },
@@ -104,6 +116,7 @@ export async function actualizarLineaAction(lineaId: string, input: EditarLineaI
       pesoKg: input.pesoKg,
       unidades: input.unidades,
       total: input.pesoKg * input.unidades,
+      fProduccion,
       ubicacion: input.ubicacion.trim(),
     },
   });

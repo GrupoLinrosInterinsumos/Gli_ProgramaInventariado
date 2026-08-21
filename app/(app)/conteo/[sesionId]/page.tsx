@@ -26,7 +26,9 @@ export default async function ConteoSesionPage({ params }: PageProps<"/conteo/[s
       orderBy: { nombre: "asc" },
     }),
     prisma.conteoLinea.findMany({
-      where: { sesionId },
+      // Los operadores solo ven lo que ellos mismos contaron; el supervisor
+      // ve todo lo de la sesión.
+      where: session.user.rol === "SUPERVISOR" ? { sesionId } : { sesionId, usuarioId: session.user.id },
       include: { producto: true, usuario: true },
       orderBy: { createdAt: "desc" },
     }),
@@ -75,7 +77,7 @@ export default async function ConteoSesionPage({ params }: PageProps<"/conteo/[s
             <Badge variant={abierta ? "success" : "neutral"}>{abierta ? "Abierta" : "Cerrada"}</Badge>
           </div>
           <p className="mt-1 text-body-sm text-on-surface-variant">
-            {sesion.almacen.nombre} · {lineas.length} líneas registradas
+            {sesion.almacen.nombre} · {lineas.length} {session.user.rol === "SUPERVISOR" ? "líneas registradas" : "líneas tuyas registradas"}
           </p>
         </div>
         <div className="flex gap-2">

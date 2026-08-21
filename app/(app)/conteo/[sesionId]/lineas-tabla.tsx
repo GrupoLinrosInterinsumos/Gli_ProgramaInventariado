@@ -27,6 +27,12 @@ function formatFecha(iso: string | null) {
   return new Date(iso).toLocaleDateString("es-PE", { timeZone: "UTC" });
 }
 
+/** ISO -> "YYYY-MM-DD" para precargar un <input type="date">. */
+function fechaParaInput(iso: string | null) {
+  if (!iso) return "";
+  return iso.slice(0, 10);
+}
+
 export function LineasTabla({
   lineas,
   currentUserId,
@@ -128,6 +134,7 @@ function FilaEdicion({ linea, onDone }: { linea: Linea; onDone: () => void }) {
   const [presentacion, setPresentacion] = useState(linea.presentacion);
   const [pesoKg, setPesoKg] = useState(String(linea.pesoKg));
   const [unidades, setUnidades] = useState(String(linea.unidades));
+  const [fProduccion, setFProduccion] = useState(fechaParaInput(linea.fProduccion));
   const [ubicacion, setUbicacion] = useState(linea.ubicacion);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -139,6 +146,7 @@ function FilaEdicion({ linea, onDone }: { linea: Linea; onDone: () => void }) {
         presentacion,
         pesoKg: Number(pesoKg),
         unidades: Number(unidades),
+        fProduccion: fProduccion || null,
         ubicacion,
       });
       if ("error" in result) {
@@ -164,7 +172,14 @@ function FilaEdicion({ linea, onDone }: { linea: Linea; onDone: () => void }) {
       </td>
       <td className="px-3 py-2 text-sm text-on-surface-variant">{(Number(pesoKg) * Number(unidades) || 0).toLocaleString("es-PE", { maximumFractionDigits: 2 })}</td>
       <td className="px-3 py-2 text-sm text-on-surface-variant">{linea.loteCodigo}</td>
-      <td className="px-3 py-2 text-sm text-on-surface-variant">{formatFecha(linea.fProduccion)}</td>
+      <td className="px-3 py-2">
+        <input
+          type="date"
+          value={fProduccion}
+          onChange={(e) => setFProduccion(e.target.value)}
+          className="w-36 rounded border border-outline-variant px-1.5 py-1 text-sm"
+        />
+      </td>
       <td className="px-3 py-2 text-sm text-on-surface-variant">{formatFecha(linea.fVencimiento)}</td>
       <td className="px-3 py-2">
         <input value={ubicacion} onChange={(e) => setUbicacion(e.target.value)} className="w-28 rounded border border-outline-variant px-1.5 py-1 text-sm" />
