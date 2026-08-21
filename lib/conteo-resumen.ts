@@ -2,10 +2,14 @@ import { prisma } from "@/lib/prisma";
 
 export type EstadoAvance = "pendiente" | "en_progreso" | "completo" | "excedido";
 
+// Margen solo para el error de redondeo de sumar floats (kg), no para
+// aceptar conteos "casi completos" como si fueran exactos.
+const EPSILON_PCT = 0.01;
+
 export function calcularEstado(pct: number): EstadoAvance {
   if (pct <= 0) return "pendiente";
-  if (pct >= 100.5) return "excedido";
-  if (pct >= 98) return "completo";
+  if (pct > 100 + EPSILON_PCT) return "excedido";
+  if (pct >= 100 - EPSILON_PCT) return "completo";
   return "en_progreso";
 }
 

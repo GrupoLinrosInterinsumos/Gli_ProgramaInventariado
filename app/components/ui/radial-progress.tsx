@@ -39,7 +39,7 @@ export function RadialProgress({
         />
       </svg>
       <div className="absolute inset-0 flex items-center justify-center text-sm font-bold text-on-surface">
-        {Math.round(pct)}%
+        {pct % 1 === 0 ? pct : pct.toFixed(1)}%
       </div>
     </div>
   );
