@@ -16,15 +16,27 @@ function formatFecha(iso: string | null) {
   return new Date(iso).toLocaleDateString("es-PE", { timeZone: "UTC" });
 }
 
+/** ISO -> "YYYY-MM-DD" para precargar un <input type="date">. */
+function fechaParaInput(iso: string | null) {
+  if (!iso) return "";
+  return iso.slice(0, 10);
+}
+
+function etiquetaProducto(p: { nombre: string; codigo: string }) {
+  return `${p.nombre} (${p.codigo})`;
+}
+
 export function ConteoForm({ sesionId, productos }: { sesionId: string; productos: Producto[] }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
   const [productoId, setProductoId] = useState("");
+  const [productoTexto, setProductoTexto] = useState("");
   const [presentacion, setPresentacion] = useState("");
   const [pesoKg, setPesoKg] = useState("");
   const [unidades, setUnidades] = useState("");
   const [loteId, setLoteId] = useState("");
+  const [fProduccionInput, setFProduccionInput] = useState("");
   const [ubicacion, setUbicacion] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -32,6 +44,7 @@ export function ConteoForm({ sesionId, productos }: { sesionId: string; producto
   const [nuevoLote, setNuevoLote] = useState({ codigo: "", fProduccion: "", fVencimiento: "" });
 
   const productosPorId = useMemo(() => new Map(productos.map((p) => [p.id, p])), [productos]);
+  const idPorEtiqueta = useMemo(() => new Map(productos.map((p) => [etiquetaProducto(p), p.id])), [productos]);
   const producto = productoId ? productosPorId.get(productoId) : undefined;
 
   const lotesDisponibles = useMemo(() => {
@@ -47,10 +60,30 @@ export function ConteoForm({ sesionId, productos }: { sesionId: string; producto
   function elegirProducto(id: string) {
     setProductoId(id);
     const p = productosPorId.get(id);
+    setProductoTexto(p ? etiquetaProducto(p) : "");
     setPresentacion(p?.presentacion ?? "");
     setPesoKg(p?.pesoKg != null ? String(p.pesoKg) : "");
     setLoteId("");
+    setFProduccionInput("");
     setError(null);
+  }
+
+  function onProductoTextoChange(texto: string) {
+    setProductoTexto(texto);
+    const id = idPorEtiqueta.get(texto.trim());
+    if (id) {
+      elegirProducto(id);
+    } else if (productoId) {
+      // Se borró/cambió el texto y ya no coincide con el producto elegido antes.
+      elegirProducto("");
+      setProductoTexto(texto);
+    }
+  }
+
+  function elegirLote(id: string) {
+    setLoteId(id);
+    const lote = lotesDisponibles.find((l) => l.id === id);
+    setFProduccionInput(fechaParaInput(lote?.fProduccion ?? null));
   }
 
   function guardarNuevoLote() {
@@ -63,6 +96,7 @@ export function ConteoForm({ sesionId, productos }: { sesionId: string; producto
       }
       setLotesExtra((prev) => ({ ...prev, [producto.id]: [...(prev[producto.id] ?? []), result.lote] }));
       setLoteId(result.lote.id);
+      setFProduccionInput(fechaParaInput(result.lote.fProduccion));
       setNuevoLote({ codigo: "", fProduccion: "", fVencimiento: "" });
       setError(null);
       router.refresh();
@@ -85,6 +119,7 @@ export function ConteoForm({ sesionId, productos }: { sesionId: string; producto
         pesoKg: Number(pesoKg),
         unidades: Number(unidades),
         loteId,
+        fProduccion: fProduccionInput || null,
         ubicacion: ubicacion.trim(),
       });
       if ("error" in result) {
@@ -102,18 +137,20 @@ export function ConteoForm({ sesionId, productos }: { sesionId: string; producto
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
         <div className="sm:col-span-2 md:col-span-1 lg:col-span-2">
           <label className="block text-label-md uppercase tracking-wide text-on-surface-variant">Producto</label>
-          <select
-            value={productoId}
-            onChange={(e) => elegirProducto(e.target.value)}
+          <input
+            type="text"
+            list="lista-productos"
+            value={productoTexto}
+            onChange={(e) => onProductoTextoChange(e.target.value)}
+            placeholder="Escribe para buscar..."
+            autoComplete="off"
             className="mt-1 w-full rounded-md border border-outline-variant px-2 py-1.5 text-sm shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-          >
-            <option value="">Seleccionar...</option>
+          />
+          <datalist id="lista-productos">
             {productos.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.nombre} ({p.codigo})
-              </option>
+              <option key={p.id} value={etiquetaProducto(p)} />
             ))}
-          </select>
+          </datalist>
         </div>
 
         <div>
@@ -163,7 +200,7 @@ export function ConteoForm({ sesionId, productos }: { sesionId: string; producto
           <select
             value={loteId}
             disabled={!producto}
-            onChange={(e) => setLoteId(e.target.value)}
+            onChange={(e) => (e.target.value === NUEVO_LOTE ? setLoteId(NUEVO_LOTE) : elegirLote(e.target.value))}
             className="mt-1 w-full rounded-md border border-outline-variant px-2 py-1.5 text-sm shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:bg-surface-container"
           >
             <option value="">Seleccionar...</option>
@@ -178,9 +215,14 @@ export function ConteoForm({ sesionId, productos }: { sesionId: string; producto
 
         <div>
           <label className="block text-label-md uppercase tracking-wide text-on-surface-variant">F. Producción</label>
-          <p className="mt-1 flex h-[34px] items-center rounded-md bg-surface-container px-2 text-sm text-on-surface-variant">
-            {loteSeleccionado ? formatFecha(loteSeleccionado.fProduccion) : "—"}
-          </p>
+          <input
+            type="date"
+            disabled={!loteSeleccionado}
+            value={fProduccionInput}
+            onChange={(e) => setFProduccionInput(e.target.value)}
+            title="Se puede escribir a mano si el lote no la trae"
+            className="mt-1 w-full rounded-md border border-outline-variant px-2 py-1.5 text-sm shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:bg-surface-container"
+          />
         </div>
 
         <div>

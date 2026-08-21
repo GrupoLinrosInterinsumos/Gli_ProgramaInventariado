@@ -10,6 +10,7 @@ export type LineaInput = {
   pesoKg: number;
   unidades: number;
   loteId: string;
+  fProduccion: string | null;
   ubicacion: string;
 };
 
@@ -45,6 +46,15 @@ export async function agregarLineaAction(sesionId: string, input: LineaInput): P
   if (sesion.estado === "CERRADA") return { error: "Este conteo ya está cerrado." };
   if (lote.productoId !== input.productoId) return { error: "El lote no corresponde a este producto." };
 
+  // La fecha de producción puede venir escrita a mano cuando el lote no la
+  // trae cargada — es solo para esta línea, no cambia el lote del catálogo.
+  let fProduccion = lote.fProduccion;
+  if (input.fProduccion) {
+    const fecha = new Date(input.fProduccion);
+    if (Number.isNaN(fecha.getTime())) return { error: "Fecha de producción inválida." };
+    fProduccion = fecha;
+  }
+
   await prisma.conteoLinea.create({
     data: {
       sesionId,
@@ -55,7 +65,7 @@ export async function agregarLineaAction(sesionId: string, input: LineaInput): P
       total: input.pesoKg * input.unidades,
       loteId: lote.id,
       loteCodigo: lote.codigo,
-      fProduccion: lote.fProduccion,
+      fProduccion,
       fVencimiento: lote.fVencimiento,
       ubicacion: input.ubicacion.trim(),
       usuarioId: session.user.id,
