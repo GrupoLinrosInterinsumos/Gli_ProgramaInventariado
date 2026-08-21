@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/app/components/ui/button";
 import { IconTrash } from "@/app/components/ui/icons";
@@ -45,9 +45,53 @@ export function LineasTabla({
   editable: boolean;
 }) {
   const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [filtroUsuarioId, setFiltroUsuarioId] = useState("");
+  const [orden, setOrden] = useState<"reciente" | "usuario">("reciente");
+
+  const usuarios = useMemo(() => {
+    const mapa = new Map<string, string>();
+    for (const l of lineas) mapa.set(l.usuarioId, l.usuarioNombre);
+    return [...mapa.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [lineas]);
+
+  const lineasMostradas = useMemo(() => {
+    const filtradas = filtroUsuarioId ? lineas.filter((l) => l.usuarioId === filtroUsuarioId) : lineas;
+    if (orden === "usuario") {
+      return [...filtradas].sort(
+        (a, b) => a.usuarioNombre.localeCompare(b.usuarioNombre) || b.createdAt.localeCompare(a.createdAt)
+      );
+    }
+    return filtradas;
+  }, [lineas, filtroUsuarioId, orden]);
 
   return (
     <div className="overflow-hidden rounded-card border border-outline-variant bg-surface-container-lowest">
+      {currentUserRol === "SUPERVISOR" ? (
+        <div className="flex flex-wrap items-center gap-3 border-b border-outline-variant bg-surface-container-low px-3 py-2">
+          <label className="flex items-center gap-2 text-sm text-on-surface-variant">
+            Usuario:
+            <select
+              value={filtroUsuarioId}
+              onChange={(e) => setFiltroUsuarioId(e.target.value)}
+              className="rounded-md border border-outline-variant px-2 py-1 text-sm shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            >
+              <option value="">Todos</option>
+              {usuarios.map(([id, nombre]) => (
+                <option key={id} value={id}>
+                  {nombre}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={() => setOrden((o) => (o === "reciente" ? "usuario" : "reciente"))}
+            className="rounded-md border border-outline-variant px-2 py-1 text-sm text-on-surface transition-colors hover:bg-surface-container"
+          >
+            {orden === "reciente" ? "Ordenar por usuario" : "Ordenar por más reciente"}
+          </button>
+        </div>
+      ) : null}
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-outline-variant">
           <thead className="bg-surface-container">
@@ -60,7 +104,7 @@ export function LineasTabla({
             </tr>
           </thead>
           <tbody className="divide-y divide-outline-variant">
-            {lineas.map((linea) => {
+            {lineasMostradas.map((linea) => {
               const puedeEditar = editable && (currentUserRol === "SUPERVISOR" || linea.usuarioId === currentUserId);
               return editandoId === linea.id ? (
                 <FilaEdicion key={linea.id} linea={linea} onDone={() => setEditandoId(null)} />
@@ -73,10 +117,12 @@ export function LineasTabla({
                 />
               );
             })}
-            {lineas.length === 0 ? (
+            {lineasMostradas.length === 0 ? (
               <tr>
                 <td colSpan={11} className="px-4 py-6 text-center text-sm text-on-surface-variant">
-                  Todavía no se ha contado ningún producto en esta sesión.
+                  {lineas.length === 0
+                    ? "Todavía no se ha contado ningún producto en esta sesión."
+                    : "Este usuario todavía no ha contado nada en esta sesión."}
                 </td>
               </tr>
             ) : null}
