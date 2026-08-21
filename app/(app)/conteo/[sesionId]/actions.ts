@@ -212,8 +212,8 @@ export async function crearProductoAction(
   const sesion = await prisma.conteoSesion.findUniqueOrThrow({ where: { id: sesionId } });
   if (sesion.estado === "CERRADA") return { error: "Este conteo ya está cerrado." };
 
-  const existente = await prisma.producto.findUnique({ where: { codigo: codigoLimpio } });
-  if (existente) return { error: `Ya existe un producto con el código "${codigoLimpio}".` };
+  const existente = await prisma.producto.findFirst({ where: { codigo: codigoLimpio, almacenId: sesion.almacenId } });
+  if (existente) return { error: `Ya existe un producto con el código "${codigoLimpio}" en este almacén.` };
 
   const producto = await prisma.producto.create({
     data: {

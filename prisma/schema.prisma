@@ -48,9 +48,12 @@ model Almacen {
   sesiones  ConteoSesion[]
 }
 
+// El mismo código de producto puede existir en más de un almacén (es el
+// mismo SKU de la empresa, guardado físicamente en varios sitios) — por eso
+// el código es único por almacén, no único a nivel global.
 model Producto {
   id           String   @id @default(cuid())
-  codigo       String   @unique
+  codigo       String
   nombre       String
   presentacion String
   pesoKg       Float?
@@ -64,6 +67,7 @@ model Producto {
   stockPrevio StockPrevio[]
   lineas      ConteoLinea[]
 
+  @@unique([codigo, almacenId])
   @@index([almacenId])
 }
 

@@ -279,7 +279,7 @@ export async function aplicarCargaPrevia(
   // 1) Productos: uno de findMany + uno de createMany, sin importar cuántas filas haya.
   const codigos = [...porProducto.keys()];
   const productosExistentes = await tx.producto.findMany({
-    where: { codigo: { in: codigos } },
+    where: { codigo: { in: codigos }, almacenId },
     select: { id: true, codigo: true },
   });
   const productoIdPorCodigo = new Map(productosExistentes.map((p) => [p.codigo, p.id]));
