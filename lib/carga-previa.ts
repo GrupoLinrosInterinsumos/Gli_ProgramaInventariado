@@ -36,10 +36,6 @@ const COLUMNAS = {
   almacen: ["almacen", "almacén", "n.almacen", "n.almacén"],
 } as const;
 
-/** Subcategoría de almacén que cuenta como stock real a comparar; el resto
- * (Pre-Producción, No conformes, etc.) se ignora en el conteo físico. */
-const SUBCATEGORIA_VALIDA = "stock";
-
 function normalizar(texto: string) {
   return texto
     .normalize("NFD")
@@ -161,15 +157,14 @@ export async function parseCargaPreviaWorkbook(buffer: ArrayBuffer, almacenObjet
       rachaVacia = 0;
 
       // Columna tipo "AQP/Stock", "BSF/Pre-Producción", "BSF/No conformes":
-      // código de almacén + subcategoría interna. Solo interesa el stock
-      // normal ("Stock") del almacén de esta sesión — el resto se descarta.
+      // código de almacén + subcategoría interna. Cuenta todo lo del
+      // almacén de esta sesión, sin importar la subcategoría (Stock,
+      // No conformes, Pre-Producción, etc. — todo es stock físico real).
       let almacenCodigo: string | null = null;
       if (colAlmacen !== null) {
         const valor = celdaTexto(row, colAlmacen);
-        const [codigoParte, ...resto] = valor.split("/");
+        const [codigoParte] = valor.split("/");
         almacenCodigo = codigoParte.trim() || null;
-        const subcategoria = resto.join("/").trim();
-        if (normalizar(subcategoria) !== SUBCATEGORIA_VALIDA) continue;
         if (almacenObjetivoNorm && normalizar(almacenCodigo ?? "") !== almacenObjetivoNorm) continue;
       }
 
@@ -223,7 +218,7 @@ export async function parseCargaPreviaWorkbook(buffer: ArrayBuffer, almacenObjet
   return { filas, errores };
 }
 
-function agruparFilas(filas: FilaCargaPrevia[]) {
+export function agruparFilas(filas: FilaCargaPrevia[]) {
   const porProducto = new Map<string, FilaCargaPrevia>();
   const stockPorClave = new Map<
     string,
