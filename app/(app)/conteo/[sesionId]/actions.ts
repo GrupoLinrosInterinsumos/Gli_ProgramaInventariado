@@ -186,3 +186,47 @@ export async function crearLoteAction(
     lote: { id: lote.id, codigo: lote.codigo, fProduccion: lote.fProduccion?.toISOString() ?? null, fVencimiento: lote.fVencimiento.toISOString() },
   };
 }
+
+export type CrearProductoResult =
+  | { error: string }
+  | { ok: true; producto: { id: string; codigo: string; nombre: string; presentacion: string; pesoKg: number | null } };
+
+/** Para productos que no vinieron en el Excel de carga previa (no hay
+ * stock previo con el que compararlos — el dashboard los mostrará como
+ * "excedido" apenas se cuente algo, ya que no tenían nada cargado). */
+export async function crearProductoAction(
+  sesionId: string,
+  codigo: string,
+  nombre: string,
+  presentacion: string,
+  pesoKg: number | null
+): Promise<CrearProductoResult> {
+  const session = await requireSession();
+  if (session.user.rol !== "SUPERVISOR") return { error: "Solo el supervisor puede agregar productos nuevos." };
+
+  const codigoLimpio = codigo.trim();
+  const nombreLimpio = nombre.trim();
+  if (!codigoLimpio) return { error: "El código es obligatorio." };
+  if (!nombreLimpio) return { error: "El nombre es obligatorio." };
+
+  const sesion = await prisma.conteoSesion.findUniqueOrThrow({ where: { id: sesionId } });
+  if (sesion.estado === "CERRADA") return { error: "Este conteo ya está cerrado." };
+
+  const existente = await prisma.producto.findUnique({ where: { codigo: codigoLimpio } });
+  if (existente) return { error: `Ya existe un producto con el código "${codigoLimpio}".` };
+
+  const producto = await prisma.producto.create({
+    data: {
+      codigo: codigoLimpio,
+      nombre: nombreLimpio,
+      presentacion: presentacion.trim() || "—",
+      pesoKg,
+      almacenId: sesion.almacenId,
+    },
+  });
+
+  return {
+    ok: true,
+    producto: { id: producto.id, codigo: producto.codigo, nombre: producto.nombre, presentacion: producto.presentacion, pesoKg: producto.pesoKg },
+  };
+}

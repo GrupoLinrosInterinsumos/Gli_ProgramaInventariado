@@ -95,7 +95,7 @@ export default async function ConteoSesionPage({ params }: PageProps<"/conteo/[s
         <div className="mt-6 rounded-card border border-outline-variant bg-surface-container-lowest p-4">
           <p className="text-sm font-semibold text-on-surface">Agregar producto contado</p>
           <div className="mt-4">
-            <ConteoForm sesionId={sesion.id} productos={productosSerializables} />
+            <ConteoForm sesionId={sesion.id} productos={productosSerializables} currentUserRol={session.user.rol} />
           </div>
         </div>
       ) : (

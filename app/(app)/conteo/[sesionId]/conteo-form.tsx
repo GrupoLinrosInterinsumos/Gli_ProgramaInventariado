@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/app/components/ui/button";
 import { IconPlus } from "@/app/components/ui/icons";
-import { agregarLineaAction, crearLoteAction } from "./actions";
+import { agregarLineaAction, crearLoteAction, crearProductoAction } from "./actions";
 
 type Lote = { id: string; codigo: string; fProduccion: string | null; fVencimiento: string };
 type Producto = { id: string; codigo: string; nombre: string; presentacion: string; pesoKg: number | null; lotes: Lote[] };
@@ -26,7 +26,15 @@ function etiquetaProducto(p: { nombre: string; codigo: string }) {
   return `${p.nombre} (${p.codigo})`;
 }
 
-export function ConteoForm({ sesionId, productos }: { sesionId: string; productos: Producto[] }) {
+export function ConteoForm({
+  sesionId,
+  productos,
+  currentUserRol,
+}: {
+  sesionId: string;
+  productos: Producto[];
+  currentUserRol: "OPERADOR" | "SUPERVISOR";
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
@@ -43,8 +51,16 @@ export function ConteoForm({ sesionId, productos }: { sesionId: string; producto
   const [lotesExtra, setLotesExtra] = useState<Record<string, Lote[]>>({});
   const [nuevoLote, setNuevoLote] = useState({ codigo: "", fProduccion: "", fVencimiento: "" });
 
-  const productosPorId = useMemo(() => new Map(productos.map((p) => [p.id, p])), [productos]);
-  const idPorEtiqueta = useMemo(() => new Map(productos.map((p) => [etiquetaProducto(p), p.id])), [productos]);
+  const [productosExtra, setProductosExtra] = useState<Producto[]>([]);
+  const [agregandoProducto, setAgregandoProducto] = useState(false);
+  const [nuevoProducto, setNuevoProducto] = useState({ codigo: "", nombre: "" });
+
+  const productosCombinados = useMemo(
+    () => [...productos, ...productosExtra.filter((pe) => !productos.some((p) => p.id === pe.id))],
+    [productos, productosExtra]
+  );
+  const productosPorId = useMemo(() => new Map(productosCombinados.map((p) => [p.id, p])), [productosCombinados]);
+  const idPorEtiqueta = useMemo(() => new Map(productosCombinados.map((p) => [etiquetaProducto(p), p.id])), [productosCombinados]);
   const producto = productoId ? productosPorId.get(productoId) : undefined;
 
   const lotesDisponibles = useMemo(() => {
@@ -65,11 +81,13 @@ export function ConteoForm({ sesionId, productos }: { sesionId: string; producto
     setPesoKg(p?.pesoKg != null ? String(p.pesoKg) : "");
     setLoteId("");
     setFProduccionInput("");
+    setAgregandoProducto(false);
     setError(null);
   }
 
   function onProductoTextoChange(texto: string) {
     setProductoTexto(texto);
+    setAgregandoProducto(false);
     const id = idPorEtiqueta.get(texto.trim());
     if (id) {
       elegirProducto(id);
@@ -78,6 +96,34 @@ export function ConteoForm({ sesionId, productos }: { sesionId: string; producto
       elegirProducto("");
       setProductoTexto(texto);
     }
+  }
+
+  function guardarNuevoProducto() {
+    startTransition(async () => {
+      const result = await crearProductoAction(
+        sesionId,
+        nuevoProducto.codigo,
+        nuevoProducto.nombre,
+        presentacion,
+        pesoKg ? Number(pesoKg) : null
+      );
+      if ("error" in result) {
+        setError(result.error);
+        return;
+      }
+      const p: Producto = { ...result.producto, lotes: [] };
+      setProductosExtra((prev) => [...prev, p]);
+      setProductoId(p.id);
+      setProductoTexto(etiquetaProducto(p));
+      setPresentacion(p.presentacion);
+      setPesoKg(p.pesoKg != null ? String(p.pesoKg) : "");
+      setLoteId("");
+      setFProduccionInput("");
+      setAgregandoProducto(false);
+      setNuevoProducto({ codigo: "", nombre: "" });
+      setError(null);
+      router.refresh();
+    });
   }
 
   function elegirLote(id: string) {
@@ -147,10 +193,22 @@ export function ConteoForm({ sesionId, productos }: { sesionId: string; producto
             className="mt-1 w-full rounded-md border border-outline-variant px-2 py-1.5 text-sm shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
           />
           <datalist id="lista-productos">
-            {productos.map((p) => (
+            {productosCombinados.map((p) => (
               <option key={p.id} value={etiquetaProducto(p)} />
             ))}
           </datalist>
+          {!productoId && productoTexto.trim() && !agregandoProducto && currentUserRol === "SUPERVISOR" ? (
+            <button
+              type="button"
+              onClick={() => {
+                setNuevoProducto((p) => ({ ...p, nombre: p.nombre || productoTexto.trim() }));
+                setAgregandoProducto(true);
+              }}
+              className="mt-1 text-xs font-medium text-primary hover:text-primary-container"
+            >
+              + Agregar &ldquo;{productoTexto.trim()}&rdquo; como producto nuevo
+            </button>
+          ) : null}
         </div>
 
         <div>
@@ -243,6 +301,39 @@ export function ConteoForm({ sesionId, productos }: { sesionId: string; producto
           />
         </div>
       </div>
+
+      {agregandoProducto ? (
+        <div className="rounded-md border border-dashed border-outline-variant bg-surface-container-low p-3">
+          <p className="text-sm font-semibold text-on-surface">Producto nuevo (no estaba en la carga previa)</p>
+          <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <input
+              type="text"
+              placeholder="Código"
+              value={nuevoProducto.codigo}
+              onChange={(e) => setNuevoProducto((p) => ({ ...p, codigo: e.target.value }))}
+              className="rounded-md border border-outline-variant px-2 py-1.5 text-sm shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            <input
+              type="text"
+              placeholder="Nombre del producto"
+              value={nuevoProducto.nombre}
+              onChange={(e) => setNuevoProducto((p) => ({ ...p, nombre: e.target.value }))}
+              className="rounded-md border border-outline-variant px-2 py-1.5 text-sm shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" size="sm" loading={pending} onClick={guardarNuevoProducto}>
+                Guardar producto
+              </Button>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setAgregandoProducto(false)}>
+                Cancelar
+              </Button>
+            </div>
+          </div>
+          <p className="mt-1 text-xs text-on-surface-variant">
+            Presentación y Peso se toman de los campos de arriba — llénalos antes de guardar si los conoces.
+          </p>
+        </div>
+      ) : null}
 
       {loteId === NUEVO_LOTE && producto ? (
         <div className="rounded-md border border-dashed border-outline-variant bg-surface-container-low p-3">
