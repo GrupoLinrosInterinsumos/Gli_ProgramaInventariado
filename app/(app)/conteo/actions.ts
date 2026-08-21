@@ -59,13 +59,16 @@ export async function crearSesionAction(
 
   let sesionId = "";
 
-  await prisma.$transaction(async (tx) => {
-    const sesion = await tx.conteoSesion.create({
-      data: { nombre, almacenId, creadoPorId: session.user.id },
-    });
-    sesionId = sesion.id;
-    await aplicarCargaPrevia(tx, sesionId, almacenId, filas);
-  });
+  await prisma.$transaction(
+    async (tx) => {
+      const sesion = await tx.conteoSesion.create({
+        data: { nombre, almacenId, creadoPorId: session.user.id },
+      });
+      sesionId = sesion.id;
+      await aplicarCargaPrevia(tx, sesionId, almacenId, filas);
+    },
+    { timeout: 30_000 } // margen: la carga es en bloque, pero un archivo grande en una red lenta puede tardar más que el default de 5s
+  );
 
   revalidatePath("/conteo");
   redirect(`/conteo/${sesionId}`);

@@ -56,11 +56,13 @@ export async function getResumenGeneral(sesionId: string): Promise<ResumenProduc
 }
 
 export async function getResumenPorLotes(sesionId: string): Promise<ResumenLote[]> {
-  const [productos, lotes, stockGrupos, contadoGrupos] = await Promise.all([
-    prisma.producto.findMany({
-      where: { almacenId: (await prisma.conteoSesion.findUniqueOrThrow({ where: { id: sesionId } })).almacenId },
-    }),
-    prisma.lote.findMany(),
+  const sesion = await prisma.conteoSesion.findUniqueOrThrow({ where: { id: sesionId } });
+
+  const productos = await prisma.producto.findMany({ where: { almacenId: sesion.almacenId } });
+  const productoIds = productos.map((p) => p.id);
+
+  const [lotes, stockGrupos, contadoGrupos] = await Promise.all([
+    productoIds.length > 0 ? prisma.lote.findMany({ where: { productoId: { in: productoIds } } }) : Promise.resolve([]),
     prisma.stockPrevio.groupBy({ by: ["productoId", "loteId"], where: { sesionId }, _sum: { cantidad: true } }),
     prisma.conteoLinea.groupBy({ by: ["productoId", "loteId", "loteCodigo"], where: { sesionId }, _sum: { total: true } }),
   ]);

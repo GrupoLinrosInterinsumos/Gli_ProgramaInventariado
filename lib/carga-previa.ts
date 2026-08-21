@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { randomUUID } from "node:crypto";
 import { Readable } from "node:stream";
 import type { PrismaClient } from "@/app/generated/prisma/client";
 import type { Prisma } from "@/app/generated/prisma/client";
@@ -252,9 +253,20 @@ function agruparFilas(filas: FilaCargaPrevia[]) {
 }
 
 /**
- * Aplica una carga previa ya parseada a una sesión: upsert de Producto y
- * Lote, y acumulación de StockPrevio. Se usa tanto desde la server action
- * de creación de sesión como desde scripts de prueba.
+ * Aplica una carga previa ya parseada a una sesión: crea los Producto y Lote
+ * que falten y siembra StockPrevio. Se usa tanto desde la server action de
+ * creación de sesión como desde scripts de prueba.
+ *
+ * Todo en bloque (unas pocas consultas totales, no una por fila) — con
+ * archivos reales de cientos de productos, hacer un upsert por fila tardaba
+ * varios minutos y agotaba el timeout de la transacción. Como `sesionId`
+ * siempre es de una sesión recién creada, no puede haber StockPrevio previo
+ * para ella, así que tampoco hace falta comprobar existencia antes de crear.
+ *
+ * Nota: si un producto o lote YA existe en el catálogo, esta función no
+ * pisa sus datos (nombre/presentación/peso/fechas) — solo crea lo que falta.
+ * Así una carga con datos incompletos o incorrectos (ej. un peso sin llenar
+ * en el sistema de origen) no puede degradar un catálogo ya bueno.
  */
 export async function aplicarCargaPrevia(
   tx: Omit<PrismaClient, "$connect" | "$disconnect" | "$on" | "$transaction" | "$extends"> | Prisma.TransactionClient,
@@ -264,45 +276,77 @@ export async function aplicarCargaPrevia(
 ) {
   const { porProducto, stockPorClave } = agruparFilas(filas);
 
-  const productoIdPorCodigo = new Map<string, string>();
-  for (const fila of porProducto.values()) {
-    const producto = await tx.producto.upsert({
-      where: { codigo: fila.codigo },
-      update: {
-        nombre: fila.nombre,
-        ...(fila.presentacion ? { presentacion: fila.presentacion } : {}),
-        ...(fila.pesoKg !== null ? { pesoKg: fila.pesoKg } : {}),
-      },
-      create: {
-        codigo: fila.codigo,
-        nombre: fila.nombre,
-        presentacion: fila.presentacion || "—",
-        pesoKg: fila.pesoKg,
-        almacenId,
-      },
-    });
-    productoIdPorCodigo.set(fila.codigo, producto.id);
+  // 1) Productos: uno de findMany + uno de createMany, sin importar cuántas filas haya.
+  const codigos = [...porProducto.keys()];
+  const productosExistentes = await tx.producto.findMany({
+    where: { codigo: { in: codigos } },
+    select: { id: true, codigo: true },
+  });
+  const productoIdPorCodigo = new Map(productosExistentes.map((p) => [p.codigo, p.id]));
+
+  const productosNuevos = codigos
+    .filter((c) => !productoIdPorCodigo.has(c))
+    .map((c) => porProducto.get(c)!)
+    .map((fila) => ({
+      id: randomUUID(),
+      codigo: fila.codigo,
+      nombre: fila.nombre,
+      presentacion: fila.presentacion || "—",
+      pesoKg: fila.pesoKg,
+      almacenId,
+    }));
+
+  if (productosNuevos.length > 0) {
+    await tx.producto.createMany({ data: productosNuevos, skipDuplicates: true });
+    for (const p of productosNuevos) productoIdPorCodigo.set(p.codigo, p.id);
   }
 
+  // 2) Lotes: mismo patrón, acotado a los productos de esta carga.
+  const lotesNecesarios = [...stockPorClave.values()].filter(
+    (e): e is typeof e & { loteCodigo: string; fVencimiento: Date } => Boolean(e.loteCodigo && e.fVencimiento)
+  );
+  const productoIdsInvolucrados = [...productoIdPorCodigo.values()];
+
+  const lotesExistentes =
+    productoIdsInvolucrados.length > 0
+      ? await tx.lote.findMany({
+          where: { productoId: { in: productoIdsInvolucrados } },
+          select: { id: true, productoId: true, codigo: true },
+        })
+      : [];
+  const loteIdPorClave = new Map(lotesExistentes.map((l) => [`${l.productoId}::${l.codigo}`, l.id]));
+
+  const lotesNuevos: { id: string; productoId: string; codigo: string; fProduccion: Date | null; fVencimiento: Date }[] = [];
+  for (const entrada of lotesNecesarios) {
+    const productoId = productoIdPorCodigo.get(entrada.producto.codigo);
+    if (!productoId) continue;
+    const clave = `${productoId}::${entrada.loteCodigo}`;
+    if (loteIdPorClave.has(clave)) continue;
+    lotesNuevos.push({
+      id: randomUUID(),
+      productoId,
+      codigo: entrada.loteCodigo,
+      fProduccion: entrada.fProduccion,
+      fVencimiento: entrada.fVencimiento,
+    });
+    loteIdPorClave.set(clave, lotesNuevos[lotesNuevos.length - 1].id);
+  }
+
+  if (lotesNuevos.length > 0) {
+    await tx.lote.createMany({ data: lotesNuevos, skipDuplicates: true });
+  }
+
+  // 3) StockPrevio: sesión nueva → nunca hay filas previas que actualizar, solo crear.
+  const stockPrevioData: { sesionId: string; productoId: string; loteId: string | null; cantidad: number }[] = [];
   for (const entrada of stockPorClave.values()) {
-    const productoId = productoIdPorCodigo.get(entrada.producto.codigo)!;
+    const productoId = productoIdPorCodigo.get(entrada.producto.codigo);
+    if (!productoId) continue;
+    const loteId =
+      entrada.loteCodigo && entrada.fVencimiento ? (loteIdPorClave.get(`${productoId}::${entrada.loteCodigo}`) ?? null) : null;
+    stockPrevioData.push({ sesionId, productoId, loteId, cantidad: entrada.cantidad });
+  }
 
-    let loteId: string | null = null;
-    const { loteCodigo, fProduccion, fVencimiento } = entrada;
-    if (loteCodigo && fVencimiento) {
-      const lote = await tx.lote.upsert({
-        where: { productoId_codigo: { productoId, codigo: loteCodigo } },
-        update: { fProduccion, fVencimiento },
-        create: { productoId, codigo: loteCodigo, fProduccion, fVencimiento },
-      });
-      loteId = lote.id;
-    }
-
-    const existente = await tx.stockPrevio.findFirst({ where: { sesionId, productoId, loteId } });
-    if (existente) {
-      await tx.stockPrevio.update({ where: { id: existente.id }, data: { cantidad: { increment: entrada.cantidad } } });
-    } else {
-      await tx.stockPrevio.create({ data: { sesionId, productoId, loteId, cantidad: entrada.cantidad } });
-    }
+  if (stockPrevioData.length > 0) {
+    await tx.stockPrevio.createMany({ data: stockPrevioData });
   }
 }
